@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Submit Imputation Job</title>
+    <link href='https://fonts.googleapis.com/css?family=Montserrat' rel='stylesheet'>
+    <style>
+      #Progress {
+        width: 100%;
+        background-color: #EEEEEE;
+      }
+
+      #progressBar {
+        width: 0%;
+        height: 20px;
+        background-color: orange;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+      }
+    </style>
+
+  </head>
+  <body>
+    <div id="app">
+        <h1>Base5 imputation server</h1>
+        <h2>Job submission form</h2>
+
+        <h3>1. Select the array build</h3>
+        <select id="selectArrayBuild" @change="selectArrayBuild">
+          <option disabled value="" selected>Please select one</option>
+          <option>GRCh38</option>
+          <option>GRCh37</option>
+        </select>
+
+        <h3>2. Select a vcf-file.</h3>
+        <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.zip">
+        <h3>3. Submit your job.</h3>
+        <button id="uploadFile" @click="uploadFile">Submit</button>
+
+        <div style="height:10px"> </div>
+        <div id="statusMessage"></div>
+        <div style="height:10px"> </div>
+        <div v-if="uploading" id="Progress">
+          <div id="progressBar">  </div>
+        </div>
+    </div>
+    <script src="https://unpkg.com/vue@1.0.28/dist/vue.js"></script>
+    <script src="https://unpkg.com/axios@0.2.1/dist/axios.min.js"></script>
+
+    <script>
+      var userEmailAddress = '';
+      console.log('receiving user data.');
+      window.onmessage = (event) => {
+        if (event.data) {
+          let receivedData = event.data;
+          console.log('received data in HTML:', receivedData);
+          userEmailAddress = receivedData;
+          console.log('email var set to: ', userEmailAddress);
+        }
+      };
+    </script>
+    <script>
+      const MAX_FILE_SIZE = 1000000000
+      const jobName = `job-${parseInt(Math.random() * 100000)}`
+
+      /* ENTER YOUR ENDPOINT HERE */
+
+      const API_ENDPOINT = 'https://j8zqqcr0wf.execute-api.us-west-1.amazonaws.com/uploads'
+      document.getElementById("statusMessage").innerHTML = 'Please select an array build and a file.'
+
+      function uploadFileAsync(
+        file,
+        presignedUploadUrl,
+        filetype,
+        finalMessage
+      ) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              const pct = e.loaded / e.total;
+              console.log(pct * 100); //onProgress(pct * 100);
+              progress(pct * 100);
+              if (pct == 1.0) {
+                document.getElementById("statusMessage").innerHTML = 'upload done. (no check for success)';
+              }
+            }
+          });
+          xhr.upload.addEventListener("error", (e) => {
+            reject(new Error("Upload failed: " + e.toString()));
+          });
+          xhr.upload.addEventListener("abort", (e) => {
+            reject(new Error("Upload aborted: " + e.toString()));
+          });
+          xhr.addEventListener("load", (e) => {
+            if (xhr.status === 200) {
+              console.log('load ok');
+              document.getElementById("statusMessage").innerHTML = `Upload successful. ${finalMessage}`
+              resolve();
+            } else {
+              reject(new Error("__ Upload failed " + xhr.status));
+              document.getElementById("statusMessage").innerHTML = 'Upload failed. Please refresh page to try again.'
+            }
+          });
+          xhr.open("PUT", presignedUploadUrl, true);
+
+          xhr.setRequestHeader('Access-Control-Allow-Headers', '*');
+          xhr.setRequestHeader('Content-type', filetype);
+          xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
+          console.log('ok');
+
+
+          try {
+            xhr.send(file);
+          } catch (e) {
+            reject(new Error("Upload failed: " + e.toString()));
+            document.getElementById("statusMessage").innerHTML = 'Upload failed. Please refresh page to try again.'
+          }
+        });
+      }
+
+      function progress(width) {
+          var elem = document.getElementById("progressBar");
+          elem.style.width = Math.floor(width) + "%";
+          elem.innerHTML = Math.floor(width)  + "%";
+      }
+
+      new Vue({
+        el: "#app",
+        data: {
+          arrayBuild: '',
+          vcf: '',
+          uploadURL: '',
+          filetype: '',
+          uploadFiletype: '',
+          extension: '',
+          randomID: '',
+          finalMessage: '',
+          uploading: ''
+        },
+        methods: {
+          selectArrayBuild (e) {
+            console.log('checking arrayBuild.');
+            const array = document.getElementById("selectArrayBuild");
+            if (!array.options[array.selectedIndex].value) {
+              return alert('Array build not selected.')
+            };
+            this.arrayBuild = array.options[array.selectedIndex].value;
+            if (!this.vcf)  {
+              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) selected. Please select a file.`
+            } else {
+              const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) and file (${displayFilename}) selected. Job ready to submit.`
+            }
+          },
+          onFileChange (e) {
+            this.vcf = ''
+            this.filetype = ''
+            if (!this.arrayBuild)  {
+              document.getElementById("statusMessage").innerHTML = `Please select an array build and a file.`
+            } else {
+              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) selected. Please select a file.`
+            }
+            let files = e.target.files || e.dataTransfer.files
+            if (!files.length) return
+            document.getElementById("statusMessage").innerHTML = 'getting file info...'
+            this.createFile(files[0])
+          },
+          createFile (file) {
+            let reader = new FileReader()
+            reader.onload = (e) => {
+              console.log('length: ', e.target.result.length)
+              console.log('filetype: ', e.target.result.split(';')[0])
+              if (e.target.result.includes('data:text')) {
+                this.filetype = 'text/plain'
+                this.uploadFiletype = 'text/plain'
+                this.extension = 'vcf'
+                }
+              if (e.target.result.includes('data:application')) {
+                if (e.target.result.includes('data:application/gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/gzip'
+                  this.extension = 'gz'
+                  } else if (e.target.result.includes('data:application/x-gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/x-gzip'
+                  this.extension = 'gz'
+                  }
+                }
+              if (!this.filetype) {
+                return alert('Wrong file type - vcf (plain text) or compressed vcf (gzipped) only.')
+                }
+              if (e.target.result.length > MAX_FILE_SIZE) {
+                return alert('File is loo large.')
+              }
+              console.log('emailAddress: ', userEmailAddress)
+              console.log('jobName: ', jobName)
+              console.log('arrayBuild: ', this.arrayBuild)
+              this.vcf = e.target.result
+              this.randomID = parseInt(Math.random() * 10000000)
+              this.filename = file // perhaps we don't need to load it in memory anymore now...
+              const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+              console.log('display filename: ', displayFilename)
+              if (!this.arrayBuild)  {
+                document.getElementById("statusMessage").innerHTML = `File (${displayFilename}) selected. Please select an array build.`
+              } else {
+                document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) and file (${displayFilename}) selected. Job ready to submit.`
+              }
+            }
+            reader.readAsDataURL(file)
+          },
+          reset: function (e) {
+            console.log('unfreezing arrayBuild.');
+            document.getElementById("selectArrayBuild").disabled=false;
+            document.getElementById("selectArrayBuild").value="";
+            document.getElementById("selectFile").value="";
+            document.getElementById("selectFile").disabled=false;
+            document.getElementById("uploadFile").disabled=false;
+            this.arrayBuild = '';
+            this.vcf = '';
+            this.filetype = '';
+            this.randomID = '';
+            document.getElementById("statusMessage").innerHTML = 'Please select an array build and a file.'
+          },
+          uploadFile: async function (e) {
+            // Check that arrayBuild is selected
+            console.log('checking arrayBuild.')
+            if (!this.arrayBuild) {
+              return alert('Array build not selected.')
+              }
+            if (!this.vcf) {
+              return alert('File not selected.')
+            }
+            // disable select buttons
+            console.log('freezing arrayBuild.')
+            document.getElementById("selectArrayBuild").disabled=true;
+            document.getElementById("selectFile").disabled=true;
+            this.finalMessage = `Your job has been submitted with id ${jobName}. When the job completes, we will send a message to ${userEmailAddress} with instructions on how to download your results. To submit another job, please refresh this page.`
+            // disable submit button
+            document.getElementById("uploadFile").disabled=true;
+            this.uploading = 'uploading'
+            // FILE UPLOAD
+            console.log('Upload clicked')
+            // Get the presigned URL
+            const response = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: this.filetype,
+                extension: this.extension,
+                randomID: this.randomID
+                }
+            })
+            console.log('Response: ', response)
+            document.getElementById("statusMessage").innerHTML = 'starting file upload...'
+            uploadFileAsync(this.filename, response.uploadURL, this.filetype, this.finalMessage)
+            console.log('started uploading (in the background)...')
+            this.uploadURL = response.uploadURL.split('?')[0]
+
+            // METADATA UPLOAD
+            console.log('Upload metadata')
+            // Get the presigned URL
+            const newresponse = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: 'text/plain',
+                extension: 'csv',
+                randomID: this.randomID
+                }
+            })
+            console.log('Response: ', newresponse)
+            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension}\n`
+            console.log('Uploading: ', metadata)
+            let newBlobData = new Blob([metadata], {type: 'text/plain'})
+            console.log('Uploading to: ', newresponse.uploadURL)
+            const newresult = await fetch(newresponse.uploadURL, {
+              method: 'PUT',
+              body: newBlobData
+            })
+            console.log('Result: ', newresult)
+          }
+        }
+      })
+    </script>
+    <style type="text/css">
+      body {
+        background: #054469;
+        padding: 20px;
+        font-family: 'Montserrat';
+      }
+      #app {
+        background: #fff;
+        border-radius: 4px;
+        padding: 20px;
+        transition: all 0.2s;
+        text-align: left;
+      }
+      #logo {
+        width: 100px;
+      }
+      h2 {
+        font-weight: bold;
+        margin-bottom: 15px;
+      }
+      h1, h2 {
+        font-weight: normal;
+        margin-bottom: 15px;
+      }
+      a {
+        color: #42b983;
+      }
+      img {
+        width: 30%;
+        margin: auto;
+        display: block;
+        margin-bottom: 10px;
+      }
+    </style>
+  </body>
+</html>
