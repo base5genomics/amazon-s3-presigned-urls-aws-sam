@@ -38,7 +38,8 @@
         <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.zip">
         <h3>3. Review Disclaimers</h3>
 
-        <h4>DISCLAIMERS.</h4>
+        <div id="disclaimers-container">
+          <h4>DISCLAIMERS.</h4>
 
         <h4>1. EVALUATION OR RESEARCH USE ONLY.</h4>
         <p>THE SERVICES AND JOBS PROVIDED OR DELIVERED BY BASE5 ARE PROVIDED “AS IS”. THE SERVICES AND JOBS ARE FOR EVALUTION OR RESEARCH USE ONLY AND NOT FOR USE IN OR FOR HUMAN OR VETERINARY DIAGNOSTIC, TREATMENT PURPOSES, OR REGULATED USES, OR FOR ANY COMMERCIAL OR OTHER FORMAL DECISION-MAKING PROCESSES.</p>
@@ -51,25 +52,25 @@
 
         <h4>4. POTENTIAL ERRORS.</h4>
         <p>The Services operate using automated processes and there are the possibility of errors or inaccuracies. We do not guarantee that all mistakes will be detected or corrected.  Users must proceed with caution when interpreting the results.</p>
-
-        <div style="height:10px"> </div>
-        <div>
+        </div>
+        <div id="terms-container">
         <input type="checkbox" id="serviceTerms" name="serviceTerms" />
         <label for="serviceTerms">I understand that by using this Service, I acknowledge that I have reviewed the Disclaimers above and I agree to the <a href="https://www.b5genomics.com/variant-imputation-terms-of-use" target="_blank" rel="noopener noreferrer">Base5 Variant Imputation Terms of Service</a>.</label>
         </div>
-        <div style="height:10px"> </div>
         <button id="uploadFile" @click="uploadFile">Submit</button>
 
-        <div style="height:10px"> </div>
         <div id="statusMessage"></div>
-        <div style="height:10px"> </div>
         <div v-if="uploading" id="Progress">
           <div id="progressBar">  </div>
         </div>
-        <div style="height:10px"> </div>
-        <button id="newJob" @click="reset" disabled>Submit another job</button>
-        <div style="height:10px"> </div>
-        <p>If you need help with your submission, please send us a message at <a href= "mailto: impute@b5genomics.com">impute@b5genomics.com</a>.</p>
+        <div class="button-container" id="post-submission">
+          <a href='https://www.b5genomics.com/account/jobs'><button id="viewJob">View my job</button></a>
+          <button id="newJob" @click="reset" disabled>Submit another job</button>
+        </div>
+        <div class="button-container" id="post-reset">
+          <a href='https://www.b5genomics.com/account/jobs'><button id="viewJob">View previous jobs</button></a>
+        </div>
+        <p id="help-message">If you need help with your submission, please send us a message at <a href= "mailto: impute@b5genomics.com">impute@b5genomics.com</a>.</p>
 
       <hr />
 
@@ -125,8 +126,9 @@
           xhr.addEventListener("load", (e) => {
             if (xhr.status === 200) {
               console.log('load ok');
-              document.getElementById("statusMessage").innerHTML = `Upload successful. ${finalMessage}`
-              document.getElementById("newJob").disabled=false
+              document.getElementById("statusMessage").innerHTML = `Upload successful. ${finalMessage}`;
+              document.getElementById("newJob").disabled=false;
+              document.getElementById("post-submission").style.display="block";
               resolve();
             } else {
               reject(new Error("__ Upload failed " + xhr.status));
@@ -135,7 +137,7 @@
           });
           xhr.open("PUT", presignedUploadUrl, true);
 
-          # TODO: can we make this more specific?
+          // TODO: can we make this more specific?
           xhr.setRequestHeader('Access-Control-Allow-Headers', '*');
           xhr.setRequestHeader('Content-type', filetype);
           xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
@@ -262,6 +264,8 @@
             this.extension = '';
             document.getElementById("statusMessage").innerHTML = 'Please select an array build and a file.';
             document.getElementById("newJob").disabled=true;
+            document.getElementById("post-submission").style.display="none";
+            document.getElementById("post-reset").style.display="block";
           },
           uploadFile: async function (e) {
             // Check that serviceTerms checkbox is checked
@@ -360,6 +364,9 @@
       button {
         font-family: 'Montserrat';
         color: #054469;
+         padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
       }
       input {
         font-family: 'Montserrat';
@@ -368,6 +375,8 @@
       select {
         font-family: 'Montserrat';
         color: #054469;
+        padding: 4px 8px;
+        margin-left: 36px;
       }
       img {
         width: 30%;
@@ -375,6 +384,57 @@
         display: block;
         margin-bottom: 10px;
       }
+      input::file-selector-button {
+        font-family: 'Montserrat';
+        color: #054469;
+        background-color: #F1F0F2;
+        font-weight: bold;
+        padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
+        margin-left: 36px
+      }
+      #disclaimers-container{
+        padding-right: 64px;
+        padding-left: 36px;
+        font-size: 12px;
+      }
+      #terms-container{
+          display: flex;
+          gap: 16px;
+          padding-right: 16px;
+    }
+    .button-container {
+      display: flex;
+      display: none;
+      padding: 8px;
+      margin-left: 36px;
+    }
+    #newJob {
+      background-color: buttonface;
+    }
+    #viewJob {
+      margin-left: 8px;
+    }
+    #uploadFile{
+        margin-bottom: 16px;
+        margin-top: 16px;
+        margin-right: auto;
+        margin-left: auto;
+        display: block;
+        padding: 8px 16px;
+        background: #38729b;
+        color: white;
+        font-size: 16px;
+    }
+    #help-message {
+      font-style: italic;
+      font-size: 12px;
+    }
+    #statusMessage {
+      padding: 8px 48px;
+      text-align: center;
+    }
     </style>
   </body>
 </html>
