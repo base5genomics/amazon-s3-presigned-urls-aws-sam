@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <base target="_blank">
     <title>Submit Imputation Job</title>
     <link href='https://fonts.googleapis.com/css?family=Montserrat' rel='stylesheet'>
     <style>
@@ -27,16 +28,25 @@
 
         <h2>Job submission form</h2>
 
-        <h3>1. Select the array build</h3>
+        <h3>1. Select your data type</h3>
+        <select id="selectSource" @change="selectSource">
+          <option disabled value="" selected>Please select one</option>
+          <option>VCF</option>
+          <option>23andMe</option>
+          <option>Ancestry</option>
+        </select>
+
+        <h3>2. Select the array build</h3>
         <select id="selectArrayBuild" @change="selectArrayBuild">
           <option disabled value="" selected>Please select one</option>
           <option>GRCh38</option>
           <option>GRCh37</option>
+          <option>NCBI36</option>
         </select>
 
-        <h3>2. Select a VCF file</h3>
-        <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.zip">
-        <h3>3. Review Disclaimers</h3>
+        <h3>3. Select your file</h3>
+        <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.txt,.zip">
+        <h3>4. Review Disclaimers</h3>
 
         <div id="disclaimers-container">
           <h4>DISCLAIMERS.</h4>
@@ -64,11 +74,11 @@
           <div id="progressBar">  </div>
         </div>
         <div class="button-container" id="post-submission">
-          <a href='https://www.b5genomics.com/account/jobs'><button id="viewJob">View my job</button></a>
+          <a href='https://www.b5genomics.com/account/jobs' target="_blank"><button id="viewJob">View my job</button></a>
           <button id="newJob" @click="reset" disabled>Submit another job</button>
         </div>
         <div class="button-container" id="post-reset">
-          <a href='https://www.b5genomics.com/account/jobs'><button id="viewJob">View previous jobs</button></a>
+          <a href='https://www.b5genomics.com/account/jobs' target="_blank"><button id="viewJob">View previous jobs</button></a>
         </div>
         <p id="help-message">If you need help with your submission, please send us a message at <a href= "mailto: impute@b5genomics.com">impute@b5genomics.com</a>.</p>
 
@@ -97,7 +107,7 @@
       /* ENTER YOUR ENDPOINT HERE */
 
       const API_ENDPOINT = 'https://yygcll86qi.execute-api.us-west-2.amazonaws.com/uploads'
-      document.getElementById("statusMessage").innerHTML = 'Please select an array build and a file.'
+      document.getElementById("statusMessage").innerHTML = 'Please select the data type, the array build and your file.'
 
       function uploadFileAsync(
         file,
@@ -159,9 +169,45 @@
           elem.innerHTML = Math.floor(width)  + "%";
       }
 
+      function update_status_message(source, arrayBuild, file) {
+        var message = document.getElementById("statusMessage").innerHTML
+        const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+        if (source == '') {
+          if (arrayBuild == '') {
+            if (file == '') {
+              message = `Please select the data type, the array build and your file.`
+            } else {
+              message = `File (${displayFilename}) selected. Please select the data type and the array build.`
+            }
+          } else {
+            if (file == '') {
+              message = `Array build (${arrayBuild}) selected. Please select your file and the data type.`
+            } else {
+              message = `Array build (${arrayBuild}) and file (${displayFilename}) selected. Please select the data type.`
+            }
+          }
+        } else {
+          if (arrayBuild == '') {
+            if (file == '') {
+              message = `Please select your ${source} file and the array build.`
+            } else {
+              message = `${this.source} file (${displayFilename}) selected. Please select the array build.`
+            }
+          } else {
+            if (file == '') {
+              message = `Array build (${arrayBuild}) selected. Please select your ${source} file.`
+            } else {
+              message = `Array build (${arrayBuild}) and ${source} file (${displayFilename}) selected. Job ready to submit.`
+            }
+          }
+        }
+        document.getElementById("statusMessage").innerHTML = message
+      }
+
       new Vue({
         el: "#app",
         data: {
+          source: '',
           arrayBuild: '',
           vcf: '',
           uploadURL: '',
@@ -173,6 +219,15 @@
           uploading: ''
         },
         methods: {
+          selectSource (e) {
+            console.log('checking source.');
+            const source = document.getElementById("selectSource");
+            if (!source.options[source.selectedIndex].value) {
+              return alert('Source not selected.')
+            };
+            this.source = source.options[source.selectedIndex].value;
+            update_status_message(this.source, this.arrayBuild, this.vcf)
+          },
           selectArrayBuild (e) {
             console.log('checking arrayBuild.');
             const array = document.getElementById("selectArrayBuild");
@@ -180,21 +235,12 @@
               return alert('Array build not selected.')
             };
             this.arrayBuild = array.options[array.selectedIndex].value;
-            if (!this.vcf)  {
-              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) selected. Please select a file.`
-            } else {
-              const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
-              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) and file (${displayFilename}) selected. Job ready to submit.`
-            }
+            update_status_message(this.source, this.arrayBuild, this.vcf)
           },
           onFileChange (e) {
             this.vcf = ''
             this.filetype = ''
-            if (!this.arrayBuild)  {
-              document.getElementById("statusMessage").innerHTML = `Please select an array build and a file.`
-            } else {
-              document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) selected. Please select a file.`
-            }
+            update_status_message(this.source, this.arrayBuild, this.vcf)
             let files = e.target.files || e.dataTransfer.files
             if (!files.length) return
             document.getElementById("statusMessage").innerHTML = 'getting file info...'
@@ -208,7 +254,7 @@
               if (e.target.result.includes('data:text')) {
                 this.filetype = 'text/plain'
                 this.uploadFiletype = 'text/plain'
-                this.extension = 'vcf'
+                this.extension = 'txt'
                 }
               if (e.target.result.includes('data:application')) {
                 if (e.target.result.includes('data:application/gzip')) {
@@ -222,7 +268,7 @@
                   }
                 }
               if (!this.filetype) {
-                return alert('Wrong file type - vcf (plain text) or compressed vcf (gzipped) only.')
+                return alert('Wrong file type - vcf or txt (plain text) or compressed vcf or txt (gzipped) only.')
                 }
               if (e.target.result.length > MAX_FILE_SIZE) {
                 return alert('File is loo large.')
@@ -235,16 +281,14 @@
               this.filename = file // perhaps we don't need to load it in memory anymore now...
               const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
               console.log('display filename: ', displayFilename)
-              if (!this.arrayBuild)  {
-                document.getElementById("statusMessage").innerHTML = `File (${displayFilename}) selected. Please select an array build.`
-              } else {
-                document.getElementById("statusMessage").innerHTML = `Array build (${this.arrayBuild}) and file (${displayFilename}) selected. Job ready to submit.`
-              }
+              update_status_message(this.source, this.arrayBuild, this.vcf)
             }
             reader.readAsDataURL(file)
           },
           reset: function (e) {
             console.log('unfreezing arrayBuild.');
+            document.getElementById("selectSource").disabled=false;
+            document.getElementById("selectSource").value="";
             document.getElementById("selectArrayBuild").disabled=false;
             document.getElementById("selectArrayBuild").value="";
             document.getElementById("selectFile").value="";
@@ -253,6 +297,7 @@
             document.getElementById("serviceTerms").disabled=false;
             document.getElementById("serviceTerms").checked=false;
             jobName = `job-${parseInt(Math.random() * 100000)}`
+            this.source = '';
             this.arrayBuild = '';
             this.vcf = '';
             this.filetype = '';
@@ -262,7 +307,7 @@
             this.uploadURL = '';
             this.uploadFiletype = '';
             this.extension = '';
-            document.getElementById("statusMessage").innerHTML = 'Please select an array build and a file.';
+            update_status_message(this.source, this.arrayBuild, this.vcf);
             document.getElementById("newJob").disabled=true;
             document.getElementById("post-submission").style.display="none";
             document.getElementById("post-reset").style.display="block";
@@ -273,6 +318,10 @@
               return alert('Please agree to the terms for this service.')
             }
             // Check that arrayBuild is selected
+            console.log('checking source.')
+            if (!this.source) {
+              return alert('Data type not selected.')
+              }
             console.log('checking arrayBuild.')
             if (!this.arrayBuild) {
               return alert('Array build not selected.')
@@ -280,8 +329,14 @@
             if (!this.vcf) {
               return alert('File not selected.')
             }
+            if (this.extension == 'txt') {
+              if (this.source == 'VCF') {
+                this.extension = 'vcf'
+              }
+            }
             // disable select buttons
             console.log('freezing arrayBuild.')
+            document.getElementById("selectSource").disabled=true;
             document.getElementById("selectArrayBuild").disabled=true;
             document.getElementById("selectFile").disabled=true;
             document.getElementById("serviceTerms").disabled=true;
@@ -320,7 +375,7 @@
                 }
             })
             console.log('Response: ', newresponse)
-            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension}\n`
+            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension},${this.source.toUpperCase()}}\n`
             console.log('Uploading: ', metadata)
             let newBlobData = new Blob([metadata], {type: 'text/plain'})
             console.log('Uploading to: ', newresponse.uploadURL)
