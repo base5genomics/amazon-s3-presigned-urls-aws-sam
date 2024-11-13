@@ -375,7 +375,7 @@
                 }
             })
             console.log('Response: ', newresponse)
-            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension},${this.source.toUpperCase()}}\n`
+            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension},${this.source.toUpperCase()}\n`
             console.log('Uploading: ', metadata)
             let newBlobData = new Blob([metadata], {type: 'text/plain'})
             console.log('Uploading to: ', newresponse.uploadURL)
