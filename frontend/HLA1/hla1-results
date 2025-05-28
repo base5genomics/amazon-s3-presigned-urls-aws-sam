@@ -1,0 +1,422 @@
+# JS code in WIX editor
+
+// Velo API Reference: https://www.wix.com/velo/reference/api-overview/introduction
+
+import wixData from 'wix-data';
+import wixUsers from 'wix-users';
+
+const PAGE_SIZE = 25;  // Number of items per page
+const SORT_ORDER = 'asc';
+
+// Define the preset groups for gene
+const class1Genes = ["HLA-A", "HLA-B", "HLA-C"];
+const class2Genes = ["HLA-DRB1", "HLA-DQB1", "HLA-DQB1", "HLA-DPA1", "HLA-DPB1", "HLA-DRB3", "HLA-DRB4", "HLA-DRB5"];
+
+
+// Add "Show All" to the job ID and samples dropdown
+const jobOptions = [{ label: "Show All", value: "all" }];
+const sampleOptions = [{ label: "Show All", value: "all" }];
+const geneOptions = [
+    { label: "Show All", value: "all" },
+    { label: "Class I", value: "class1" },
+    { label: "Class II", value: "class2" },
+    { label: "Class I + II", value: "class1and2" }
+];
+
+
+// dropdown options
+let uniqueJobNames = [];
+let uniqueSamples = [];
+let uniqueGenes = [];
+
+
+// current display table parameters
+let currentPage = 0;   // Track the current page
+let cachedResults = []; // the cached query so that we don't have to wait for db re-query with each sort/filter operation
+let currentEmail = '';
+let currentSort = ['job_name', 'job_id']; // fields to sort by
+let currentJobId = 'all';
+let currentSample = 'all';
+let currentGene = 'all';
+let currentResolution = 'all';
+let currentConfThresh = 0.7;
+
+// Function to format a date string
+function formatDate(dateString) {
+    const date = new Date(dateString);  // Convert to Date object
+    // Format: "May 14 2025"
+    return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric"
+    });
+}
+
+$w.onReady(function () {
+    $w("#image7").hide();
+    $w("#horizontalMenu1").hide();
+    $w("#container1").hide();
+    $w("#text63").hide();
+    $w("#text53").hide();
+    $w('#confidenceSlider').value = currentConfThresh;
+});
+
+$w.onReady(function () {
+    const user = wixUsers.currentUser;
+
+    // Get the email of the logged-in user
+    user.getEmail()
+        .then((email) => {
+            // cache the email
+            currentEmail = email;
+            loadTable(currentEmail);
+        })
+        .catch((err) => {
+            console.error("Error fetching user email: ", err);
+        });
+
+    // Event listener for dropdown change
+    $w('#resultsDropdown').onChange((event) => {
+        currentJobId = event.target.value;
+        currentPage = 0;
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    // Event listener for sample dropdown change
+    $w('#sampleDropdown').onChange((event) => {
+        currentSample = event.target.value;
+        currentPage = 0;
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    // Event listener for sample dropdown change
+    $w('#geneDropdown').onChange((event) => {
+        currentGene = event.target.value;
+        currentPage = 0;
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    // Event listener for sample dropdown change
+    $w('#fieldDropdown').onChange((event) => {
+        currentResolution = event.target.value;
+        currentPage = 0;
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    // Event listener for confidence threshold slider change
+    $w('#confidenceSlider').onChange((event) => {
+        currentConfThresh = event.target.value;
+        currentPage = 0;
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    // event listener for sort dropdown, but this appends/removes from the list depending on what is selected
+    $w('#sortDropdown').onChange((event) => {
+        let sortKey = event.target.value;
+        // toggle it in or out of the sort array
+        if (sortKey === 'job') {
+            toggleValue(currentSort, 'job_name');
+            toggleValue(currentSort, 'job_id');
+        } else {
+            toggleValue(currentSort, sortKey);
+        };
+        updateSortedbyText(currentSort);
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    $w('#clearSortButton').onClick((event) => {
+        currentSort = [];
+        updateSortedbyText(currentSort);
+        renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+    });
+
+    $w('#exportButton').onClick((event) => {
+        downloadTableData(cachedResults, currentJobId, currentSample, currentGene, currentResolution);
+    });
+
+    $w('#nextPage').onClick(() => changePage(1));
+    $w('#prevPage').onClick(() => changePage(-1));
+});
+
+function updateSortedbyText(currentSort) {
+    // Mapping of field names to display names
+    const fieldMap = {
+        "job_name": "Job",
+        "job_id": "Job"
+    };
+
+    // Set to keep track of already added display names
+    const addedFields = new Set();
+
+    // Process each sort field, map to display name, and capitalize
+    const formattedNames = currentSort.map(field => {
+        // Use mapped name if available, otherwise capitalize directly
+        const displayName = fieldMap[field] || capitalize(field);
+
+        // Handle the case where both "job_name" and "job_id" map to "Job"
+        if (displayName === "Job" && addedFields.has("Job")) {
+            return null; // Skip duplicate "Job"
+        }
+
+        // Track added fields to avoid duplicates
+        addedFields.add(displayName);
+        return displayName;
+    }).filter(name => name !== null);  // Remove null values
+
+    // Join formatted names with ", " and update the sorted text
+    if (currentSort.length === 0) {
+        $w('#sortedbyText').text = "No sorting applied";
+    } else {
+        $w('#sortedbyText').text = "Sorted by: " + formattedNames.join(", ");
+    }
+}
+
+// Helper function to capitalize the first letter
+function capitalize(word) {
+    return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
+function toggleValue(arr, value) {
+    const index = arr.indexOf(value);
+    if (index === -1) {
+        arr.push(value);  // Add if not present
+    } else {
+        arr.splice(index, 1);  // Remove if present
+    }
+    return arr;
+}
+
+// Change page when clicking next or previous
+function changePage(direction) {
+    currentPage += direction;
+    if (currentPage < 0) currentPage = 0;  // Prevent negative page
+    renderTableData(cachedResults, currentPage, currentSort, SORT_ORDER, currentJobId, currentSample, currentGene, currentResolution, currentConfThresh);
+}
+
+function loadTable(email, page = 0) {
+    currentPage = page;
+    fetchTableData(email)
+        .then(data => {
+            renderTableData(data, currentPage);
+        });
+}
+
+// Fetch data from Wix Data API
+function fetchTableData(email) {
+    let query = wixData.query("base5ImputeDb/hla1").eq("email", email);
+    console.log('fetching');
+
+    return query.limit(100000) // this is something we need to think about since, no matter what, its an issue. I think we need to move it to the above query with 'AND' logic, but that means we need to limit some other things.
+        .find()
+        .then(results => {
+            console.log("Fetched data:", results.items.length);
+            cachedResults = results.items;  // Store for future use
+            return cachedResults;
+        })
+        .catch(err => {
+            console.error("Error fetching table data:", err);
+            cachedResults = [];
+            return [];
+        });
+}
+
+
+function filterTableData (
+    data,
+    job = "all",
+    sample = "all",
+    gene = "all",
+    resolution = "all",
+    confidenceThresh = 0
+) {
+    let filtered = data.filter(item => {
+        const jobMatch = (job === "all" || job === "") || item.job_name === job || item.job_id === job;
+        const sampleMatch = (sample === "all" || sample === "") || item.sample === sample;
+        const geneMatch =
+            gene === "all" || gene === "" ||
+            (gene === "class1" && class1Genes.includes(item.gene)) ||
+            (gene === "class2" && class2Genes.includes(item.gene)) ||
+            (gene === "class1and2" && (class1Genes.concat(class2Genes)).includes(item.gene)) ||
+            item.gene === gene;
+        // field match uses == instead of === since it might be integer or string
+        const fieldMatch = (resolution === "all" || resolution === "") || item.field == resolution;
+        const confMatch = item.confidence >= confidenceThresh
+
+        return jobMatch && sampleMatch && geneMatch && fieldMatch && confMatch;
+    });
+    return filtered;
+}
+
+function renderTableData(
+    data,
+    page = 0,
+    sortKeys = ["job_name", "job_id"],
+    sortOrder = SORT_ORDER,
+    job = "all",
+    sample = "all",
+    gene = "all",
+    resolution = "all",
+    confidenceThresh = 0
+) {
+    // ----------------------
+    // Client-side Filtering
+    // ----------------------
+    let filtered = filterTableData(data, job, sample, gene, resolution, confidenceThresh);
+
+    // set the options in the drop downs to match what is already filtered
+    uniqueJobNames = [...new Set(filtered.map(item => (item.job_name != null) ? item.job_name : item.job_id))];
+    uniqueSamples = [...new Set(filtered.map(item => item.sample))].sort();
+    uniqueGenes = [...new Set(filtered.map(item => item.gene))].sort();
+
+    let localJobOptions = [];
+    let localSampleOptions = [];
+    let localGeneOptions = [];
+
+    uniqueJobNames.forEach(jobId => {
+        localJobOptions.push({ label: jobId, value: jobId });
+    });
+    uniqueSamples.forEach(sample => {
+        localSampleOptions.push({ label: sample, value: sample });
+    });
+    uniqueGenes.forEach(gene => {
+        localGeneOptions.push({ label: gene, value: gene });
+    });
+
+
+    $w("#resultsDropdown").options = jobOptions.concat(localJobOptions);
+    $w("#sampleDropdown").options = sampleOptions.concat(localSampleOptions);
+    $w("#geneDropdown").options = geneOptions.concat(localGeneOptions);
+
+    // ----------------------
+    // Multi-key Sorting
+    // ----------------------
+    const sorted = [...filtered].sort((a, b) => {
+        for (let key of sortKeys) {
+            let valA = a[key];
+            let valB = b[key];
+
+            // Convert dates to numbers
+            if (valA instanceof Date) valA = valA.getTime();
+            if (valB instanceof Date) valB = valB.getTime();
+
+            // Normalize case for strings
+            if (typeof valA === "string") valA = valA.toLowerCase();
+            if (typeof valB === "string") valB = valB.toLowerCase();
+
+            if (valA < valB) return sortOrder === "asc" ? -1 : 1;
+            if (valA > valB) return sortOrder === "asc" ? 1 : -1;
+            // else, move on to the next key
+        }
+        return 0; // All keys are equal
+    });
+
+    // ----------------------
+    // Pagination
+    // ----------------------
+    const start = page * PAGE_SIZE;
+    const paginated = sorted.slice(start, start + PAGE_SIZE);
+
+    // ----------------------
+    // Format and Render
+    // ----------------------
+    const tableData = paginated.map(item => ({
+        job: (item.job_name != null) ? item.job_name : item.job_id,
+        date: formatDate(item._createdDate),
+        sample: item.sample,
+        gene: item.gene,
+        field: item.field,
+        allele1: item.allele1,
+        allele2: item.allele2,
+        confidence: item.confidence
+    }));
+
+    $w("#resultsTable").rows = tableData;
+
+    // ----------------------
+    // Pagination Buttons
+    // ----------------------
+
+    if (page === 0) {
+        $w("#prevPage").disable();
+    } else {
+        $w("#prevPage").enable();
+    }
+
+    if (start + PAGE_SIZE >= sorted.length) {
+        $w("#nextPage").disable();
+    } else {
+        $w("#nextPage").enable();
+    }
+
+    console.log(`Rendered page ${page}, sorted by ${sortKeys.join(", ")} (${sortOrder})`);
+}
+
+function generateFilenameWithTimestamp(prefix = "HLA1-export", extension = "csv") {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+
+    const datePart = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const timePart = `${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+
+    return `${prefix}_${datePart}_${timePart}.${extension}`;
+}
+
+function downloadTableData(
+    data,
+    job = "all",
+    sample = "all",
+    gene = "all",
+    resolution = "all"
+) {
+    let filtered = filterTableData(data, job, sample, gene, resolution);
+    // Get headers from keys of first object
+    const headers = ['Job ID', 'Job Name', 'Date', 'Sample', 'Gene', 'Field', 'Allele1', 'Allele2', 'Confidence'];
+
+    const tableData = filtered.map(item => ({
+        job_id: item.job_id,
+        job_name: item.job_name,
+        date: formatDate(item._createdDate),
+        sample: item.sample,
+        gene: item.gene,
+        field: item.field,
+        allele1: item.allele1,
+        allele2: item.allele2,
+        confidence: item.confidence
+    }));
+
+
+    // Convert data to CSV format
+    const csvContent = [
+        // add metadata
+        "# HLA Imputation - HLA1 Data Export",
+        `## Selected Job: ${job}`,
+        `## Selected Sample: ${sample}`,
+        `## Selected Gene: ${gene}`,
+        `## Selected Allele Resolution: ${resolution}`,
+        headers.join(","), // header row
+        ...tableData.map(row =>
+            headers.map(header => {
+                const value = row[header.toLowerCase().replace(" ", "_")] != null ? row[header.toLowerCase().replace(" ", "_")] : "";
+                // Escape quotes by doubling them
+                const escaped = typeof value === "string"
+                    ? `"${value.replace(/"/g, '""')}"`
+                    : value;
+                return escaped;
+            }).join(",")
+        )
+    ].join("\n");
+
+    const iframe = $w("#htmlDownloadHelper");
+    const fileName = generateFilenameWithTimestamp();
+    if (iframe) {
+        iframe.postMessage({
+            type: "download-csv",
+            csvContent,
+            fileName
+        });
+    } else {
+        console.error("HTML download helper not found");
+    }
+
+}
+

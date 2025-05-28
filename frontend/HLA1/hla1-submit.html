@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_blank">
+    <title>Submit Imputation Job</title>
+    <link href='https://fonts.googleapis.com/css?family=Montserrat' rel='stylesheet'>
+    <style>
+      #Progress {
+        width: 100%;
+        background-color: #EEEEEE;
+      }
+
+      #progressBar {
+        width: 0%;
+        height: 20px;
+        background-color: orange;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+      }
+    </style>
+
+  </head>
+  <body>
+    <div id="app">
+
+        <h2>Job submission form</h2>
+
+        <h3>1. Select your VCF file</h3>
+        <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.zip">
+
+        <h3>2. Select the array build (VCF reference)</h3>
+        <select id="selectArrayBuild" @change="selectArrayBuild">
+          <option disabled value="" selected>Please select one</option>
+          <option>GRCh38</option>
+          <option>GRCh37</option>
+          <option>NCBI36</option>
+        </select>
+
+        <h3>3. Create a job name</h3>
+        <div style="padding-left: 36px; font-size: 12px;">Only alphanumeric characters and underscores are allowed. Maximum 15 characters.</div>
+        <div style="height: 10px;"></div>
+        <input id="customName" type="text" pattern="^[a-zA-Z0-9_]{1,15}$" title="Only alphanumeric characters and underscores are allowed. Maximum 15 characters." maxlength="15" placeholder="Enter text" value="">
+
+        <div style="height: 50px;"></div>
+
+        <button id="uploadFile" @click="uploadFile">Submit</button>
+
+        <div id="statusMessage"></div>
+        <div id="errorMessage"></div>
+        <div v-if="uploading" id="Progress">
+          <div id="progressBar">  </div>
+        </div>
+        <div class="button-container" id="post-submission">
+          <button id="newJob" @click="reset" disabled>Submit another job</button>
+        </div>
+
+    </div>
+    <script src="https://unpkg.com/vue@1.0.28/dist/vue.js"></script>
+    <script src="https://unpkg.com/axios@0.2.1/dist/axios.min.js"></script>
+
+    <script>
+      var userEmailAddress = '';
+      console.log('receiving user data.');
+      window.onmessage = (event) => {
+        if (event.data) {
+          let receivedData = event.data;
+          console.log('received data in HTML:', receivedData);
+          userEmailAddress = receivedData;
+          console.log('email var set to: ', userEmailAddress);
+        }
+      };
+    </script>
+    <script>
+      const MAX_FILE_SIZE = 1000000000
+      var jobName = `job-${parseInt(Math.random() * 100000)}`
+
+      /* ENTER YOUR ENDPOINT HERE */
+
+      const API_ENDPOINT = 'https://yygcll86qi.execute-api.us-west-2.amazonaws.com/uploads'
+      document.getElementById("statusMessage").innerHTML = 'Please select the array build and your file.'
+      document.getElementById("errorMessage").innerHTML = ''
+
+      function uploadFileAsync(
+        file,
+        presignedUploadUrl,
+        filetype,
+        finalMessage
+      ) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              const pct = e.loaded / e.total;
+              console.log(pct * 100); //onProgress(pct * 100);
+              progress(pct * 100);
+              if (pct == 1.0) {
+                document.getElementById("statusMessage").innerHTML = 'Submission done. (no check for success)';
+              }
+            }
+          });
+          xhr.upload.addEventListener("error", (e) => {
+            reject(new Error("Submission failed: " + e.toString()));
+          });
+          xhr.upload.addEventListener("abort", (e) => {
+            reject(new Error("Submission aborted: " + e.toString()));
+          });
+          xhr.addEventListener("load", (e) => {
+            if (xhr.status === 200) {
+              console.log('load ok');
+              document.getElementById("statusMessage").innerHTML = `Submission successful. ${finalMessage}`;
+              document.getElementById("newJob").disabled=false;
+              document.getElementById("post-submission").style.display="block";
+              resolve();
+            } else {
+              reject(new Error("__ Submission failed " + xhr.status));
+              document.getElementById("statusMessage").innerHTML = 'Submission failed. Please click Submit in the menu to try again.'
+            }
+          });
+          xhr.open("PUT", presignedUploadUrl, true);
+
+          // TODO: can we make this more specific?
+          xhr.setRequestHeader('Access-Control-Allow-Headers', '*');
+          xhr.setRequestHeader('Content-type', filetype);
+          xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
+          console.log('ok');
+
+
+          try {
+            xhr.send(file);
+          } catch (e) {
+            reject(new Error("Submission failed: " + e.toString()));
+            document.getElementById("statusMessage").innerHTML = 'Submission failed. Please click Submit in the menu to try again.'
+          }
+        });
+      }
+
+      function progress(width) {
+          var elem = document.getElementById("progressBar");
+          elem.style.width = Math.floor(width) + "%";
+          elem.innerHTML = Math.floor(width)  + "%";
+      }
+
+      function update_status_message(arrayBuild, file) {
+        var message = document.getElementById("statusMessage").innerHTML
+        const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+        if (arrayBuild == '') {
+            if (file == '') {
+              message = `Please select your file and the array build.`
+            } else {
+              message = `File (${displayFilename}) selected. Please select the array build.`
+            }
+          } else {
+            if (file == '') {
+              message = `Array build (${arrayBuild}) selected. Please select your file.`
+            } else {
+              message = `Array build (${arrayBuild}) and file (${displayFilename}) selected. Job ready to submit.`
+            }
+          }
+        document.getElementById("statusMessage").innerHTML = message
+      }
+
+      new Vue({
+        el: "#app",
+        data: {
+          arrayBuild: '',
+          customName: '',
+          vcf: '',
+          uploadURL: '',
+          filetype: '',
+          uploadFiletype: '',
+          extension: '',
+          randomID: '',
+          finalMessage: '',
+          uploading: ''
+        },
+        methods: {
+          selectArrayBuild (e) {
+            console.log('checking arrayBuild.');
+            const array = document.getElementById("selectArrayBuild");
+            if (!array.options[array.selectedIndex].value) {
+              document.getElementById("errorMessage").innerHTML = 'Array build not selected.';
+              return null;
+              // return alert('Array build not selected.')
+            };
+            this.arrayBuild = array.options[array.selectedIndex].value;
+            update_status_message(this.arrayBuild, this.vcf)
+          },
+          onFileChange (e) {
+            this.vcf = ''
+            this.filetype = ''
+            update_status_message(this.arrayBuild, this.vcf)
+            let files = e.target.files || e.dataTransfer.files
+            if (!files.length) return
+            document.getElementById("statusMessage").innerHTML = 'getting file info...'
+            this.createFile(files[0])
+          },
+          createFile (file) {
+            let reader = new FileReader()
+            reader.onload = (e) => {
+              console.log('length: ', e.target.result.length)
+              console.log('filetype: ', e.target.result.split(';')[0])
+              if (e.target.result.includes('data:text')) {
+                this.filetype = 'text/plain'
+                this.uploadFiletype = 'text/plain'
+                this.extension = 'vcf'
+                }
+              if (e.target.result.includes('data:application')) {
+                if (e.target.result.includes('data:application/gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/gzip'
+                  this.extension = 'gz'
+                  } else if (e.target.result.includes('data:application/x-gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/x-gzip'
+                  this.extension = 'gz'
+                  }
+                }
+              if (!this.filetype) {
+                  document.getElementById("errorMessage").innerHTML = 'Wrong file type - vcf or txt (plain text) or compressed vcf or txt (gzipped) only.';
+                  return null;
+                  // return alert('Wrong file type - vcf or txt (plain text) or compressed vcf or txt (gzipped) only.')
+                }
+              if (e.target.result.length > MAX_FILE_SIZE) {
+                  document.getElementById("errorMessage").innerHTML = 'File is loo large.';
+                  return null;
+                  // return alert('File is loo large.')
+              }
+              console.log('jobName: ', jobName)
+              console.log('arrayBuild: ', this.arrayBuild)
+              this.vcf = e.target.result
+              this.randomID = parseInt(Math.random() * 10000000)
+              this.filename = file // perhaps we don't need to load it in memory anymore now...
+              const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+              console.log('display filename: ', displayFilename)
+              update_status_message(this.arrayBuild, this.vcf)
+            }
+            reader.readAsDataURL(file)
+          },
+          reset: function (e) {
+            console.log('unfreezing arrayBuild.');
+            document.getElementById("selectArrayBuild").disabled=false;
+            document.getElementById("selectArrayBuild").value="";
+            document.getElementById("customName").value="";
+            document.getElementById("selectFile").value="";
+            document.getElementById("selectFile").disabled=false;
+            document.getElementById("uploadFile").disabled=false;
+            jobName = `job-${parseInt(Math.random() * 100000)}`
+            this.arrayBuild = '';
+            this.customName = '';
+            this.vcf = '';
+            this.filetype = '';
+            this.randomID = '';
+            this.finalMessage = '';
+            this.uploading = '';
+            this.uploadURL = '';
+            this.uploadFiletype = '';
+            this.extension = '';
+            update_status_message(this.arrayBuild, this.vcf);
+            document.getElementById("newJob").disabled=true;
+            document.getElementById("post-submission").style.display="none";
+          },
+          uploadFile: async function (e) {
+            console.log('checking arrayBuild.')
+            if (!this.arrayBuild) {
+                document.getElementById("errorMessage").innerHTML = 'Array build not selected.';
+                return null;
+                // return alert('Array build not selected.')
+              }
+            if (!this.vcf) {
+              document.getElementById("errorMessage").innerHTML = 'File not selected.';
+                return null;
+                // return alert('File not selected.')
+            }
+            const selectedName = document.getElementById("customName");
+            if (!selectedName.checkValidity()) {
+                document.getElementById("errorMessage").innerHTML = "Invalid job name. Only alphanumeric characters and underscores are allowed. Maximum 15 characters.";
+                return null;
+                // return alert("Invalid job name. Only alphanumeric characters and underscores are allowed. Maximum 15 characters.");
+            }
+            this.customName = selectedName.value
+            // disable select buttons
+            console.log('freezing arrayBuild.')
+            document.getElementById("selectArrayBuild").disabled=true;
+            document.getElementById("selectFile").disabled=true;
+            this.finalMessage = `Your job has been submitted with id ${jobName}. When the job completes, you will see it in the Results section.`
+            // disable submit button
+            document.getElementById("uploadFile").disabled=true;
+            this.uploading = 'uploading'
+            // FILE UPLOAD
+            console.log('Upload clicked')
+            // Get the presigned URL
+            const response = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: this.filetype,
+                extension: this.extension,
+                randomID: this.randomID
+                }
+            })
+            console.log('Response: ', response)
+            document.getElementById("statusMessage").innerHTML = 'starting file upload...'
+            uploadFileAsync(this.filename, response.uploadURL, this.filetype, this.finalMessage)
+            console.log('started uploading (in the background)...')
+            this.uploadURL = response.uploadURL.split('?')[0]
+
+            // METADATA UPLOAD
+            console.log('Upload metadata')
+            // Get the presigned URL
+            const newresponse = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: 'text/plain',
+                extension: 'csv',
+                randomID: this.randomID
+                }
+            })
+
+            console.log('Response: ', newresponse)
+            const metadata = `${userEmailAddress},${jobName}_hla1,${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension},VCF,${this.customName}\n`
+            console.log('Uploading: ', metadata)
+            let newBlobData = new Blob([metadata], {type: 'text/plain'})
+            console.log('Uploading to: ', newresponse.uploadURL)
+            const newresult = await fetch(newresponse.uploadURL, {
+              method: 'PUT',
+              body: newBlobData
+            })
+            console.log('Result: ', newresult)
+          }
+        }
+      })
+    </script>
+    <style type="text/css">
+      body {
+        background: #FFFFFF;
+        padding: 20px;
+        font-family: 'Montserrat';
+        color: #054469;
+      }
+      #app {
+        background: #fff;
+        border-radius: 4px;
+        padding: 20px;
+        transition: all 0.2s;
+        text-align: left;
+      }
+      #logo {
+        width: 100px;
+      }
+      h2 {
+        font-weight: bold;
+        margin-bottom: 15px;
+      }
+      h1, h2 {
+        font-weight: normal;
+        margin-bottom: 15px;
+      }
+      a {
+        color: #39729B;
+      }
+      button {
+        font-family: 'Montserrat';
+        color: #054469;
+         padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
+      }
+      input {
+        font-family: 'Montserrat';
+        color: #054469;
+      }
+      input[type="text"] {
+        font-family: 'Montserrat';
+        color: #054469;
+        margin-left: 36px;
+      }
+      select {
+        font-family: 'Montserrat';
+        color: #054469;
+        padding: 4px 8px;
+        margin-left: 36px;
+      }
+      img {
+        width: 30%;
+        margin: auto;
+        display: block;
+        margin-bottom: 10px;
+      }
+      input::file-selector-button {
+        font-family: 'Montserrat';
+        color: #054469;
+        background-color: #F1F0F2;
+        font-weight: bold;
+        padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
+        margin-left: 36px
+      }
+    .button-container {
+      display: flex;
+      display: none;
+      padding: 8px;
+      margin-left: 36px;
+    }
+    #newJob {
+      background-color: buttonface;
+    }
+    #viewJob {
+      margin-left: 8px;
+    }
+    #uploadFile{
+        margin-bottom: 16px;
+        margin-top: 16px;
+        margin-right: auto;
+        margin-left: auto;
+        display: block;
+        padding: 8px 16px;
+        background: #38729b;
+        color: white;
+        font-size: 16px;
+    }
+    #help-message {
+      font-style: italic;
+      font-size: 12px;
+    }
+    #statusMessage {
+      padding: 8px 48px;
+      text-align: center;
+    }
+    #errorMessage {
+      padding: 8px 48px;
+      text-align: center;
+      color: #FF7F0E;
+    }
+    </style>
+  </body>
+</html>

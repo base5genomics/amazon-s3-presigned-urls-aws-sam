@@ -1,0 +1,106 @@
+// Velo API Reference: https://www.wix.com/velo/reference/api-overview/introduction
+import wixUsers from 'wix-users';
+import wixData from "wix-data";
+
+let currentEmail = '';
+
+$w.onReady(function () {
+
+	// Hide header and footer items
+    $w("#image7").hide();
+    $w("#horizontalMenu1").hide();
+    $w("#container1").hide();
+    $w("#text63").hide();
+    $w("#text53").hide();
+
+    const user = wixUsers.currentUser;
+
+    // Get the email of the logged-in user
+    user.getEmail()
+        .then((email) => {
+            // cache the email
+            currentEmail = email;
+            loadTable(currentEmail);
+        })
+        .catch((err) => {
+            console.error("Error fetching user email: ", err);
+        });
+
+	// refresh button
+    $w('#refreshButton').onClick(()=>{
+		$w("#jobsTable").rows = [];
+		loadTable(currentEmail);
+		})
+
+});
+
+function loadTable(email) {
+
+	wixData
+		.query("base5ImputeDb/jobs")
+		.eq("email", email)
+		.contains("job_id", "_hla1")
+		.find()
+		.then((results) => {
+			results.items.sort((a, b) => {
+				const date1 = a.job_date;
+				const date2 = b.job_date;
+				if (date1 > date2) {
+					return -1
+				} else {
+					return 1
+				}
+			})
+
+			const tableData = results.items.map(item => ({
+        		job: (item.job_name != null) ? item.job_name : item.job_id,
+				date: formatDate(item.job_date),
+				status: item.job_status
+			}));
+			// Set table data
+			$w("#jobsTable").rows = tableData;
+	})
+}
+
+// Function to format a date string
+function formatDate(dateString) {
+    const date = new Date(dateString);  // Convert to Date object
+    // Format: "May 14 2025"
+    return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "2-digit",
+        year: "numeric"
+    });
+}
+
+// const populateJobsRows = async () => {
+// 	const email = await user.getEmail();
+// 	wixData
+// 		.query("base5ImputeDb/jobs")
+// 		.eq("email", email)
+// 		.contains("job_id", "_hla1")
+// 		.find()
+// 		.then((results) => {
+// 			results.items.sort((a, b) => {
+// 				const date1 = a.job_date;
+// 				const date2 = b.job_date;
+// 				if (date1 > date2) {
+// 					return -1
+// 				} else {
+// 					return 1
+// 				}
+// 			})
+
+// 			const tableData = results.items.map(item => ({
+//         		job: (item.job_name != null) ? item.job_name : item.job_id,
+// 				date: formatDate(item.job_date),
+// 				status: item.job_status
+// 			}));
+// 			// Set table data
+// 			$w("#jobsTable").rows = tableData;
+// 	})
+// }
+
+// $w.onReady(function () {
+// 	populateJobsRows();
+// })
