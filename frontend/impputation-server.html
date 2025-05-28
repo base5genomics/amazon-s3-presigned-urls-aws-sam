@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_blank">
+    <title>Submit Imputation Job</title>
+    <link href='https://fonts.googleapis.com/css?family=Montserrat' rel='stylesheet'>
+    <style>
+      #Progress {
+        width: 100%;
+        background-color: #EEEEEE;
+      }
+
+      #progressBar {
+        width: 0%;
+        height: 20px;
+        background-color: orange;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+      }
+    </style>
+
+  </head>
+  <body>
+    <div id="app">
+      <h1>Base5 imputation server</h1>
+      <hr />
+
+        <h2>Job submission form</h2>
+
+        <h3>1. Select your data type</h3>
+        <select id="selectSource" @change="selectSource">
+          <option disabled value="" selected>Please select one</option>
+          <option>VCF</option>
+          <option>23andMe</option>
+          <option>Ancestry</option>
+        </select>
+
+        <h3>2. Select the array build</h3>
+        <select id="selectArrayBuild" @change="selectArrayBuild">
+          <option disabled value="" selected>Please select one</option>
+          <option>GRCh38</option>
+          <option>GRCh37</option>
+          <option>NCBI36</option>
+        </select>
+
+        <h3>3. Select your file</h3>
+        <input id="selectFile" type="file" @change="onFileChange" accept=".vcf,.gz,.txt,.zip">
+        <h3>4. Review Disclaimers</h3>
+
+        <div id="disclaimers-container">
+          <h4>DISCLAIMERS.</h4>
+
+        <h4>1. EVALUATION OR RESEARCH USE ONLY.</h4>
+        <p>THE SERVICES AND JOBS PROVIDED OR DELIVERED BY BASE5 ARE PROVIDED “AS IS”. THE SERVICES AND JOBS ARE FOR EVALUTION OR RESEARCH USE ONLY AND NOT FOR USE IN OR FOR HUMAN OR VETERINARY DIAGNOSTIC, TREATMENT PURPOSES, OR REGULATED USES, OR FOR ANY COMMERCIAL OR OTHER FORMAL DECISION-MAKING PROCESSES.</p>
+
+        <h4>2. NO IDENTIFIABLE INFORMATION.</h4>
+        <p>User Content uploaded or submitted to the services must NOT be accompanied by or include any “Protected Health Information” (PHI) as defined in 45 CFR 160.103 or personally identifiable information as described in 5 USC Section 522.</p>
+
+        <h4>3. ACCURACY OF RESULTS.</h4>
+        <p>While we strive to provide accurate and reliable outputs, we do not guarantee the accuracy, completeness, or suitability of the data generated in the Jobs. Users are responsible for independently verifying the results.</p>
+
+        <h4>4. POTENTIAL ERRORS.</h4>
+        <p>The Services operate using automated processes and there are the possibility of errors or inaccuracies. We do not guarantee that all mistakes will be detected or corrected.  Users must proceed with caution when interpreting the results.</p>
+        </div>
+        <div id="terms-container">
+        <input type="checkbox" id="serviceTerms" name="serviceTerms" />
+        <label for="serviceTerms">I understand that by using this Service, I acknowledge that I have reviewed the Disclaimers above and I agree to the <a href="https://www.b5genomics.com/variant-imputation-terms-of-use" target="_blank" rel="noopener noreferrer">Base5 Variant Imputation Terms of Service</a>.</label>
+        </div>
+        <button id="uploadFile" @click="uploadFile">Submit</button>
+
+        <div id="statusMessage"></div>
+        <div v-if="uploading" id="Progress">
+          <div id="progressBar">  </div>
+        </div>
+        <div class="button-container" id="post-submission">
+          <a href='https://www.b5genomics.com/account/jobs' target="_blank"><button id="viewJob">View my job</button></a>
+          <button id="newJob" @click="reset" disabled>Submit another job</button>
+        </div>
+        <div class="button-container" id="post-reset">
+          <a href='https://www.b5genomics.com/account/jobs' target="_blank"><button id="viewJob">View previous jobs</button></a>
+        </div>
+        <p id="help-message">If you need help with your submission, please send us a message at <a href= "mailto: impute@b5genomics.com">impute@b5genomics.com</a>.</p>
+
+      <hr />
+
+    </div>
+    <script src="https://unpkg.com/vue@1.0.28/dist/vue.js"></script>
+    <script src="https://unpkg.com/axios@0.2.1/dist/axios.min.js"></script>
+
+    <script>
+      var userEmailAddress = '';
+      console.log('receiving user data.');
+      window.onmessage = (event) => {
+        if (event.data) {
+          let receivedData = event.data;
+          console.log('received data in HTML:', receivedData);
+          userEmailAddress = receivedData;
+          console.log('email var set to: ', userEmailAddress);
+        }
+      };
+    </script>
+    <script>
+      const MAX_FILE_SIZE = 1000000000
+      var jobName = `job-${parseInt(Math.random() * 100000)}`
+
+      /* ENTER YOUR ENDPOINT HERE */
+
+      const API_ENDPOINT = 'https://yygcll86qi.execute-api.us-west-2.amazonaws.com/uploads'
+      document.getElementById("statusMessage").innerHTML = 'Please select the data type, the array build and your file.'
+
+      function uploadFileAsync(
+        file,
+        presignedUploadUrl,
+        filetype,
+        finalMessage
+      ) {
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable) {
+              const pct = e.loaded / e.total;
+              console.log(pct * 100); //onProgress(pct * 100);
+              progress(pct * 100);
+              if (pct == 1.0) {
+                document.getElementById("statusMessage").innerHTML = 'upload done. (no check for success)';
+              }
+            }
+          });
+          xhr.upload.addEventListener("error", (e) => {
+            reject(new Error("Upload failed: " + e.toString()));
+          });
+          xhr.upload.addEventListener("abort", (e) => {
+            reject(new Error("Upload aborted: " + e.toString()));
+          });
+          xhr.addEventListener("load", (e) => {
+            if (xhr.status === 200) {
+              console.log('load ok');
+              document.getElementById("statusMessage").innerHTML = `Upload successful. ${finalMessage}`;
+              document.getElementById("newJob").disabled=false;
+              document.getElementById("post-submission").style.display="block";
+              resolve();
+            } else {
+              reject(new Error("__ Upload failed " + xhr.status));
+              document.getElementById("statusMessage").innerHTML = 'Upload failed. Please refresh page to try again.'
+            }
+          });
+          xhr.open("PUT", presignedUploadUrl, true);
+
+          // TODO: can we make this more specific?
+          xhr.setRequestHeader('Access-Control-Allow-Headers', '*');
+          xhr.setRequestHeader('Content-type', filetype);
+          xhr.setRequestHeader('Access-Control-Allow-Origin', '*');
+          console.log('ok');
+
+
+          try {
+            xhr.send(file);
+          } catch (e) {
+            reject(new Error("Upload failed: " + e.toString()));
+            document.getElementById("statusMessage").innerHTML = 'Upload failed. Please refresh page to try again.'
+          }
+        });
+      }
+
+      function progress(width) {
+          var elem = document.getElementById("progressBar");
+          elem.style.width = Math.floor(width) + "%";
+          elem.innerHTML = Math.floor(width)  + "%";
+      }
+
+      function update_status_message(source, arrayBuild, file) {
+        var message = document.getElementById("statusMessage").innerHTML
+        const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+        if (source == '') {
+          if (arrayBuild == '') {
+            if (file == '') {
+              message = `Please select the data type, the array build and your file.`
+            } else {
+              message = `File (${displayFilename}) selected. Please select the data type and the array build.`
+            }
+          } else {
+            if (file == '') {
+              message = `Array build (${arrayBuild}) selected. Please select your file and the data type.`
+            } else {
+              message = `Array build (${arrayBuild}) and file (${displayFilename}) selected. Please select the data type.`
+            }
+          }
+        } else {
+          if (arrayBuild == '') {
+            if (file == '') {
+              message = `Please select your ${source} file and the array build.`
+            } else {
+              message = `${this.source} file (${displayFilename}) selected. Please select the array build.`
+            }
+          } else {
+            if (file == '') {
+              message = `Array build (${arrayBuild}) selected. Please select your ${source} file.`
+            } else {
+              message = `Array build (${arrayBuild}) and ${source} file (${displayFilename}) selected. Job ready to submit.`
+            }
+          }
+        }
+        document.getElementById("statusMessage").innerHTML = message
+      }
+
+      new Vue({
+        el: "#app",
+        data: {
+          source: '',
+          arrayBuild: '',
+          vcf: '',
+          uploadURL: '',
+          filetype: '',
+          uploadFiletype: '',
+          extension: '',
+          randomID: '',
+          finalMessage: '',
+          uploading: ''
+        },
+        methods: {
+          selectSource (e) {
+            console.log('checking source.');
+            const source = document.getElementById("selectSource");
+            if (!source.options[source.selectedIndex].value) {
+              return alert('Source not selected.')
+            };
+            this.source = source.options[source.selectedIndex].value;
+            update_status_message(this.source, this.arrayBuild, this.vcf)
+          },
+          selectArrayBuild (e) {
+            console.log('checking arrayBuild.');
+            const array = document.getElementById("selectArrayBuild");
+            if (!array.options[array.selectedIndex].value) {
+              return alert('Array build not selected.')
+            };
+            this.arrayBuild = array.options[array.selectedIndex].value;
+            update_status_message(this.source, this.arrayBuild, this.vcf)
+          },
+          onFileChange (e) {
+            this.vcf = ''
+            this.filetype = ''
+            update_status_message(this.source, this.arrayBuild, this.vcf)
+            let files = e.target.files || e.dataTransfer.files
+            if (!files.length) return
+            document.getElementById("statusMessage").innerHTML = 'getting file info...'
+            this.createFile(files[0])
+          },
+          createFile (file) {
+            let reader = new FileReader()
+            reader.onload = (e) => {
+              console.log('length: ', e.target.result.length)
+              console.log('filetype: ', e.target.result.split(';')[0])
+              if (e.target.result.includes('data:text')) {
+                this.filetype = 'text/plain'
+                this.uploadFiletype = 'text/plain'
+                this.extension = 'txt'
+                }
+              if (e.target.result.includes('data:application')) {
+                if (e.target.result.includes('data:application/gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/gzip'
+                  this.extension = 'gz'
+                  } else if (e.target.result.includes('data:application/x-gzip')) {
+                  this.filetype = 'application/octet-stream'
+                  this.uploadFiletype = 'data:application/x-gzip'
+                  this.extension = 'gz'
+                  }
+                }
+              if (!this.filetype) {
+                return alert('Wrong file type - vcf or txt (plain text) or compressed vcf or txt (gzipped) only.')
+                }
+              if (e.target.result.length > MAX_FILE_SIZE) {
+                return alert('File is loo large.')
+              }
+              console.log('emailAddress: ', userEmailAddress)
+              console.log('jobName: ', jobName)
+              console.log('arrayBuild: ', this.arrayBuild)
+              this.vcf = e.target.result
+              this.randomID = parseInt(Math.random() * 10000000)
+              this.filename = file // perhaps we don't need to load it in memory anymore now...
+              const displayFilename = document.getElementById("selectFile").value.replace(/.*[\/\\]/, '')
+              console.log('display filename: ', displayFilename)
+              update_status_message(this.source, this.arrayBuild, this.vcf)
+            }
+            reader.readAsDataURL(file)
+          },
+          reset: function (e) {
+            console.log('unfreezing arrayBuild.');
+            document.getElementById("selectSource").disabled=false;
+            document.getElementById("selectSource").value="";
+            document.getElementById("selectArrayBuild").disabled=false;
+            document.getElementById("selectArrayBuild").value="";
+            document.getElementById("selectFile").value="";
+            document.getElementById("selectFile").disabled=false;
+            document.getElementById("uploadFile").disabled=false;
+            document.getElementById("serviceTerms").disabled=false;
+            document.getElementById("serviceTerms").checked=false;
+            jobName = `job-${parseInt(Math.random() * 100000)}`
+            this.source = '';
+            this.arrayBuild = '';
+            this.vcf = '';
+            this.filetype = '';
+            this.randomID = '';
+            this.finalMessage = '';
+            this.uploading = '';
+            this.uploadURL = '';
+            this.uploadFiletype = '';
+            this.extension = '';
+            update_status_message(this.source, this.arrayBuild, this.vcf);
+            document.getElementById("newJob").disabled=true;
+            document.getElementById("post-submission").style.display="none";
+            document.getElementById("post-reset").style.display="block";
+          },
+          uploadFile: async function (e) {
+            // Check that serviceTerms checkbox is checked
+            if (!document.getElementById("serviceTerms").checked) {
+              return alert('Please agree to the terms for this service.')
+            }
+            // Check that arrayBuild is selected
+            console.log('checking source.')
+            if (!this.source) {
+              return alert('Data type not selected.')
+              }
+            console.log('checking arrayBuild.')
+            if (!this.arrayBuild) {
+              return alert('Array build not selected.')
+              }
+            if (!this.vcf) {
+              return alert('File not selected.')
+            }
+            if (this.extension == 'txt') {
+              if (this.source == 'VCF') {
+                this.extension = 'vcf'
+              }
+            }
+            // disable select buttons
+            console.log('freezing arrayBuild.')
+            document.getElementById("selectSource").disabled=true;
+            document.getElementById("selectArrayBuild").disabled=true;
+            document.getElementById("selectFile").disabled=true;
+            document.getElementById("serviceTerms").disabled=true;
+            this.finalMessage = `Your job has been submitted with id ${jobName}. When the job completes, we will send a message to ${userEmailAddress} with instructions on how to download your results.`
+            // disable submit button
+            document.getElementById("uploadFile").disabled=true;
+            this.uploading = 'uploading'
+            // FILE UPLOAD
+            console.log('Upload clicked')
+            // Get the presigned URL
+            const response = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: this.filetype,
+                extension: this.extension,
+                randomID: this.randomID
+                }
+            })
+            console.log('Response: ', response)
+            document.getElementById("statusMessage").innerHTML = 'starting file upload...'
+            uploadFileAsync(this.filename, response.uploadURL, this.filetype, this.finalMessage)
+            console.log('started uploading (in the background)...')
+            this.uploadURL = response.uploadURL.split('?')[0]
+
+            // METADATA UPLOAD
+            console.log('Upload metadata')
+            // Get the presigned URL
+            const newresponse = await axios({
+              method: 'GET',
+              url: API_ENDPOINT,
+              params: {
+                filetype: 'text/plain',
+                extension: 'csv',
+                randomID: this.randomID
+                }
+            })
+            console.log('Response: ', newresponse)
+            const metadata = `${userEmailAddress},${jobName},${this.arrayBuild},${this.randomID},${this.uploadFiletype},${this.extension},${this.source.toUpperCase()}\n`
+            console.log('Uploading: ', metadata)
+            let newBlobData = new Blob([metadata], {type: 'text/plain'})
+            console.log('Uploading to: ', newresponse.uploadURL)
+            const newresult = await fetch(newresponse.uploadURL, {
+              method: 'PUT',
+              body: newBlobData
+            })
+            console.log('Result: ', newresult)
+          }
+        }
+      })
+    </script>
+    <style type="text/css">
+      body {
+        background: #054469;
+        padding: 20px;
+        font-family: 'Montserrat';
+        color: #054469;
+      }
+      #app {
+        background: #fff;
+        border-radius: 4px;
+        padding: 20px;
+        transition: all 0.2s;
+        text-align: left;
+      }
+      #logo {
+        width: 100px;
+      }
+      h2 {
+        font-weight: bold;
+        margin-bottom: 15px;
+      }
+      h1, h2 {
+        font-weight: normal;
+        margin-bottom: 15px;
+      }
+      a {
+        color: #39729B;
+      }
+      button {
+        font-family: 'Montserrat';
+        color: #054469;
+         padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
+      }
+      input {
+        font-family: 'Montserrat';
+        color: #054469;
+      }
+      select {
+        font-family: 'Montserrat';
+        color: #054469;
+        padding: 4px 8px;
+        margin-left: 36px;
+      }
+      img {
+        width: 30%;
+        margin: auto;
+        display: block;
+        margin-bottom: 10px;
+      }
+      input::file-selector-button {
+        font-family: 'Montserrat';
+        color: #054469;
+        background-color: #F1F0F2;
+        font-weight: bold;
+        padding: 4px;
+        border: thin solid grey;
+        border-radius: 4px;
+        margin-left: 36px
+      }
+      #disclaimers-container{
+        padding-right: 64px;
+        padding-left: 36px;
+        font-size: 12px;
+      }
+      #terms-container{
+          display: flex;
+          gap: 16px;
+          padding-right: 16px;
+    }
+    .button-container {
+      display: flex;
+      display: none;
+      padding: 8px;
+      margin-left: 36px;
+    }
+    #newJob {
+      background-color: buttonface;
+    }
+    #viewJob {
+      margin-left: 8px;
+    }
+    #uploadFile{
+        margin-bottom: 16px;
+        margin-top: 16px;
+        margin-right: auto;
+        margin-left: auto;
+        display: block;
+        padding: 8px 16px;
+        background: #38729b;
+        color: white;
+        font-size: 16px;
+    }
+    #help-message {
+      font-style: italic;
+      font-size: 12px;
+    }
+    #statusMessage {
+      padding: 8px 48px;
+      text-align: center;
+    }
+    </style>
+  </body>
+</html>
